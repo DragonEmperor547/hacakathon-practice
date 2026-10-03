@@ -37,7 +37,7 @@ export async function fetchComplaintById(complaintId: string): Promise<Complaint
     .from('complaints')
     .select(`
       *,
-      profiles:user_id (
+      profiles (
         full_name,
         role
       )
@@ -79,7 +79,7 @@ export async function fetchAllComplaints(): Promise<Complaint[]> {
     .from('complaints')
     .select(`
       *,
-      profiles:user_id (
+      profiles (
         full_name,
         role
       )
@@ -145,7 +145,11 @@ export async function uploadComplaintImage(
   const timestamp = Date.now();
   const filePath = `${userId}/${timestamp}.jpg`;
   
-  const arrayBuffer = decode(base64Data);
+  const cleanBase64 = base64Data.includes('base64,')
+    ? base64Data.split('base64,')[1]
+    : base64Data;
+
+  const arrayBuffer = decode(cleanBase64);
 
   const { error: uploadError } = await supabase.storage
     .from('complaint-images')
