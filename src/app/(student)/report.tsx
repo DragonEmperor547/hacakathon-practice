@@ -42,20 +42,31 @@ export default function ReportProblemScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const handlePickImage = async () => {
+  const handlePickImage = async (source: 'gallery' | 'camera') => {
     try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permissionResult =
+        source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
-        setErrorMsg('Permission to access photo gallery is required!');
+        setErrorMsg(
+          source === 'camera'
+            ? 'Permission to use the camera is required!'
+            : 'Permission to access photo gallery is required!'
+        );
         return;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.7,
         base64: true,
-      });
+      };
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync(options)
+          : await ImagePicker.launchImageLibraryAsync(options);
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
@@ -190,11 +201,24 @@ export default function ReportProblemScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <TouchableOpacity style={styles.uploadBox} onPress={handlePickImage}>
-              <Text style={styles.uploadIcon}>📷</Text>
-              <Text style={styles.uploadText}>Upload Image</Text>
-              <Text style={styles.uploadSubtext}>Select photo from device</Text>
-            </TouchableOpacity>
+            <View style={styles.uploadRow}>
+              <TouchableOpacity
+                style={[styles.uploadBox, styles.uploadBoxFlex]}
+                onPress={() => handlePickImage('gallery')}
+              >
+                <Text style={styles.uploadIcon}>🖼️</Text>
+                <Text style={styles.uploadText}>Upload Image</Text>
+                <Text style={styles.uploadSubtext}>Select photo from device</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.uploadBox, styles.uploadBoxFlex]}
+                onPress={() => handlePickImage('camera')}
+              >
+                <Text style={styles.uploadIcon}>📷</Text>
+                <Text style={styles.uploadText}>Take Photo</Text>
+                <Text style={styles.uploadSubtext}>Use your camera</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -260,6 +284,13 @@ const styles = StyleSheet.create({
   textArea: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  uploadRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  uploadBoxFlex: {
+    flex: 1,
   },
   uploadBox: {
     borderWidth: 2,
