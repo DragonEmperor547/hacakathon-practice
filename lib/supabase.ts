@@ -2,8 +2,18 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const defaultUrl = 'https://qnfhgpzqahvakmnbntwn.supabase.co';
+const defaultKey = 'sb_publishable_bAvFQKjnr8QAjXeTbqWPOQ_FnzzvKsU';
+
+const supabaseUrl =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  defaultUrl;
+const supabaseAnonKey =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  defaultKey;
 
 // SSR / Node safe storage adapter to prevent "window is not defined" errors during static exports
 const isServer = typeof window === 'undefined';

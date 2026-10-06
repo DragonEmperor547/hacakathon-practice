@@ -94,6 +94,10 @@ drop policy if exists "read own profile or admin" on public.profiles;
 create policy "read own profile or admin" on public.profiles
   for select using (id = auth.uid() or public.is_admin());
 
+drop policy if exists "update own profile" on public.profiles;
+create policy "update own profile" on public.profiles
+  for update using (id = auth.uid());
+
 drop policy if exists "students read own, admins read all" on public.complaints;
 create policy "students read own, admins read all" on public.complaints
   for select using (user_id = auth.uid() or public.is_admin());
@@ -121,6 +125,10 @@ on conflict (id) do nothing;
 drop policy if exists "auth upload images" on storage.objects;
 create policy "auth upload images" on storage.objects
   for insert to authenticated with check (bucket_id = 'complaint-images');
+
+drop policy if exists "auth update images" on storage.objects;
+create policy "auth update images" on storage.objects
+  for update to authenticated using (bucket_id = 'complaint-images');
 
 drop policy if exists "public read images" on storage.objects;
 create policy "public read images" on storage.objects
