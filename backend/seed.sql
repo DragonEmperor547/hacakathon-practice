@@ -1,6 +1,7 @@
 -- ========================================================
 -- backend/seed.sql
--- Realistic Demo Seed Data with Upvotes, Comments, Locations, and Statuses
+-- Realistic Demo Seed Data with Reference Codes, Assigned Teams,
+-- Multiple Photos, Upvotes, Comments, and Notifications
 -- ========================================================
 
 -- 1. Ensure campus locations exist
@@ -13,8 +14,6 @@ insert into public.campus_locations (building, floor, room) values
   ('Sports Complex & Gym', 'Ground Floor', 'Gymnasium')
 on conflict (building, floor, room) do nothing;
 
--- 2. Clean previous sample complaints if re-seeding
--- (Assumes demo accounts student@example.com and admin@example.com exist in auth.users)
 do $$
 declare
   student_uid uuid;
@@ -22,14 +21,12 @@ declare
   loc_light uuid;
   loc_chair uuid;
   loc_leak uuid;
-  loc_clean uuid;
   loc_wifi uuid;
   
   c1_id uuid;
   c2_id uuid;
   c3_id uuid;
   c4_id uuid;
-  c5_id uuid;
 begin
   select id into student_uid from auth.users where email = 'student@example.com' limit 1;
   select id into admin_uid from auth.users where email = 'admin@example.com' limit 1;
@@ -43,10 +40,12 @@ begin
   select id into loc_leak from public.campus_locations where room = 'Reading Hall & AC Wing' limit 1;
   select id into loc_wifi from public.campus_locations where room = 'Wi-Fi Hub & Study Room' limit 1;
 
-  -- Insert Complaint 1: In Progress with upvotes and discussion
+  -- Complaint 1: #CC-1031 (Figma reference issue) with Assigned Team 'Electrical'
   insert into public.complaints (
-    user_id, title, description, category, location, location_id, status, priority, admin_note
+    reference_code, user_id, title, description, category, location, location_id,
+    status, priority, assigned_team, admin_note
   ) values (
+    'CC-1031',
     student_uid,
     'Flickering tube light in 1st floor corridor',
     'The tube light outside Room 201 keeps flickering and goes off in the evening. It is pitch dark during late study hours.',
@@ -55,13 +54,19 @@ begin
     loc_light,
     'In Progress',
     'Medium',
+    'Electrical',
     'Electrician assigned. Replacement ballast ordered.'
-  ) returning id into c1_id;
+  )
+  on conflict (reference_code) do update
+  set assigned_team = 'Electrical', status = 'In Progress'
+  returning id into c1_id;
 
-  -- Insert Complaint 2: Urgent Leakage with high upvotes
+  -- Complaint 2: #CC-1048 (Figma reference issue) with Assigned Team 'Facilities' & Multiple Photos
   insert into public.complaints (
-    user_id, title, description, category, location, location_id, status, priority, admin_note
+    reference_code, user_id, title, description, category, location, location_id,
+    status, priority, assigned_team, admin_note
   ) values (
+    'CC-1048',
     student_uid,
     'Water leaking from AC ceiling onto books',
     'Heavy water dripping directly above Section D bookshelves in the reading hall. Books are getting damp.',
@@ -70,12 +75,17 @@ begin
     loc_leak,
     'Pending',
     'Urgent',
-    null
-  ) returning id into c2_id;
+    'Facilities',
+    'Facilities team dispatched for inspection.'
+  )
+  on conflict (reference_code) do update
+  set assigned_team = 'Facilities', priority = 'Urgent'
+  returning id into c2_id;
 
-  -- Insert Complaint 3: Wi-Fi Disconnecting
+  -- Complaint 3: Wi-Fi Disconnecting (Assigned Team 'IT & Network')
   insert into public.complaints (
-    user_id, title, description, category, location, location_id, status, priority, admin_note
+    user_id, title, description, category, location, location_id,
+    status, priority, assigned_team, admin_note
   ) values (
     student_uid,
     'Hostel 3rd floor Wi-Fi keeps dropping every 2 mins',
@@ -85,47 +95,37 @@ begin
     loc_wifi,
     'Pending',
     'High',
+    'IT & Network',
     null
   ) returning id into c3_id;
 
-  -- Insert Complaint 4: Resolved chair
-  insert into public.complaints (
-    user_id, title, description, category, location, location_id, status, priority, admin_note
-  ) values (
-    student_uid,
-    'Broken desk chair in Room 204',
-    'Backrest cracked in third row, seat 5.',
-    'Furniture',
-    'Block B (Management), 2nd Floor, Room 204',
-    loc_chair,
-    'Resolved',
-    'Low',
-    'Replaced chair with a new ergonomic unit from storage.'
-  ) returning id into c4_id;
-
-  -- Insert Upvotes (student upvoted their own / other issues)
-  insert into public.complaint_upvotes (complaint_id, user_id) values
-    (c1_id, student_uid),
-    (c2_id, student_uid),
-    (c3_id, student_uid)
-  on conflict do nothing;
-
-  if admin_uid is not null then
-    insert into public.complaint_upvotes (complaint_id, user_id) values
-      (c2_id, admin_uid)
-    on conflict do nothing;
+  -- Upvotes
+  if c1_id is not null then
+    insert into public.complaint_upvotes (complaint_id, user_id) values (c1_id, student_uid) on conflict do nothing;
   end if;
 
-  -- Insert Two-Way Comments Thread on Complaint 1
-  insert into public.complaint_comments (complaint_id, user_id, message) values
-    (student_uid, c1_id, 'Has anyone checked this today? It buzzed loudly during our evening lab.');
+  if c2_id is not null then
+    insert into public.complaint_upvotes (complaint_id, user_id) values (c2_id, student_uid) on conflict do nothing;
+    if admin_uid is not null then
+      insert into public.complaint_upvotes (complaint_id, user_id) values (c2_id, admin_uid) on conflict do nothing;
+    end if;
+  end if;
 
-  if admin_uid is not null then
+  -- Two-Way Comments Thread on CC-1031
+  if c1_id is not null then
     insert into public.complaint_comments (complaint_id, user_id, message) values
-      (c1_id, admin_uid, 'Electrician arrived at 10 AM. Parts arriving this afternoon.');
+      (c1_id, student_uid, 'Has anyone checked this today? It buzzed loudly during our evening lab.');
+
+    if admin_uid is not null then
+      insert into public.complaint_comments (complaint_id, user_id, message, is_official) values
+        (c1_id, admin_uid, 'Electrician arrived at 10 AM. Replacement ballast arriving this afternoon.', true);
+    end if;
   end if;
 
-  insert into public.complaint_comments (complaint_id, user_id, message) values
-    (student_uid, c1_id, 'Thank you for the quick update!');
+  -- Seed Notification for Student
+  if c2_id is not null then
+    insert into public.notifications (user_id, complaint_id, title, message) values
+      (student_uid, c2_id, 'Team Assigned: CC-1048', 'The Facilities department has been assigned to inspect the leak.');
+  end if;
 
 end $$;
