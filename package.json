@@ -1,0 +1,12 @@
+{
+  "name": "campus-complaints-root",
+  "private": true,
+  "description": "Root workspace runner for CampusCare",
+  "scripts": {
+    "start": "npm --prefix frontend start",
+    "dev": "npm --prefix frontend run dev",
+    "web": "npm --prefix frontend run web",
+    "android": "npm --prefix frontend run android",
+    "ios": "npm --prefix frontend run ios"
+  }
+}

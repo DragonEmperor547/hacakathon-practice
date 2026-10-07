@@ -16,7 +16,7 @@ export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority, size = '
       case 'small':
         return 11;
       case 'large':
-        return 14;
+        return 13;
       default:
         return 12;
     }
@@ -25,11 +25,11 @@ export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority, size = '
   const getPadding = () => {
     switch (size) {
       case 'small':
-        return { paddingVertical: 2, paddingHorizontal: 8 };
+        return { paddingVertical: 2, paddingHorizontal: 7 };
       case 'large':
-        return { paddingVertical: 6, paddingHorizontal: 14 };
+        return { paddingVertical: 5, paddingHorizontal: 11 };
       default:
-        return { paddingVertical: 4, paddingHorizontal: 10 };
+        return { paddingVertical: 3, paddingHorizontal: 9 };
     }
   };
 
@@ -58,5 +58,6 @@ const styles = StyleSheet.create({
   },
   text: {
     fontWeight: '600',
+    letterSpacing: 0.1,
   },
 });

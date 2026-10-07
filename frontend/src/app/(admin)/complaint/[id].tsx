@@ -1,26 +1,47 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { fetchComplaintById, fetchStatusHistory, updateComplaintAdmin } from '@/lib/api';
+import { COLORS } from '@/constants/theme';
 import { Complaint, ComplaintPriority, ComplaintStatus, StatusHistory } from '@/types';
+import {
+  fetchComplaintById,
+  fetchStatusHistory,
+  getComplaintReference,
+  updateComplaintAdmin,
+} from '@/lib/api';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
-import { Chips } from '@/components/Chips';
-import { Input } from '@/components/Input';
-import { Button } from '@/components/Button';
-import { InlineMessage } from '@/components/InlineMessage';
-import { COLORS, LAYOUT } from '@/constants/theme';
+import {
+  ArrowLeftIcon,
+  CATEGORY_ICONS,
+  CommentIcon,
+  PinIcon,
+  ShieldIcon,
+} from '@/components/Icons';
+import { ActivityCommentsModal } from '@/components/ActivityCommentsModal';
 
 const STATUSES: ComplaintStatus[] = ['Pending', 'In Progress', 'Resolved', 'Rejected'];
 const PRIORITIES: ComplaintPriority[] = ['Low', 'Medium', 'High', 'Urgent'];
+const TEAMS = [
+  'Facilities',
+  'Plumbing',
+  'Electrical',
+  'HVAC / Cooling',
+  'IT & Network',
+  'Janitorial',
+];
 
 export default function AdminComplaintDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,75 +51,89 @@ export default function AdminComplaintDetailScreen() {
   const [history, setHistory] = useState<StatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Editable Form State
-  const [selectedStatus, setSelectedStatus] = useState<ComplaintStatus>('Pending');
-  const [selectedPriority, setSelectedPriority] = useState<ComplaintPriority>('Medium');
+  // Admin Update Form States
+  const [newStatus, setNewStatus] = useState<ComplaintStatus>('Pending');
+  const [newPriority, setNewPriority] = useState<ComplaintPriority>('Medium');
+  const [assignedTeam, setAssignedTeam] = useState<string>('Facilities');
   const [adminNote, setAdminNote] = useState('');
-
   const [saving, setSaving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const loadData = async () => {
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+
+  const loadData = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
-    const [compData, histData] = await Promise.all([
-      fetchComplaintById(id as string),
-      fetchStatusHistory(id as string),
-    ]);
-    if (compData) {
-      setComplaint(compData);
-      setSelectedStatus(compData.status);
-      setSelectedPriority(compData.priority);
-      setAdminNote(compData.admin_note || '');
+    try {
+      const [compData, histData] = await Promise.all([
+        fetchComplaintById(id),
+        fetchStatusHistory(id),
+      ]);
+      if (compData) {
+        setComplaint(compData);
+        setNewStatus(compData.status);
+        setNewPriority(compData.priority);
+        setAssignedTeam(compData.assigned_team || 'Facilities');
+        setAdminNote(compData.admin_note || '');
+      }
+      setHistory(histData);
+    } catch (e) {
+      console.error('Error loading admin complaint details:', e);
+    } finally {
+      setLoading(false);
     }
-    setHistory(histData);
-    setLoading(false);
-  };
+  }, [id]);
 
   useEffect(() => {
     loadData();
-  }, [id]);
+  }, [loadData]);
 
-  const handleSaveChanges = async () => {
-    if (!complaint?.id) return;
-
+  const handleUpdate = async () => {
+    if (!complaint) return;
     setSaving(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
 
     try {
       const updated = await updateComplaintAdmin({
         complaintId: complaint.id,
-        status: selectedStatus,
-        priority: selectedPriority,
+        status: newStatus,
+        priority: newPriority,
         adminNote: adminNote.trim() || null,
+        assignedTeam,
       });
 
-      setComplaint((prev) => (prev ? { ...prev, ...updated } : updated));
-      setSuccessMsg('Complaint status updated successfully!');
-      
-      // Refresh history log
-      const newHist = await fetchStatusHistory(complaint.id);
-      setHistory(newHist);
-    } catch (err: any) {
-      console.error('Update failed:', err);
-      setErrorMsg(err.message || 'Failed to update complaint.');
+      setComplaint(updated);
+      await loadData();
+      Alert.alert('Success', 'Complaint updated successfully and student notified.');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update complaint.');
     } finally {
       setSaving(false);
     }
   };
 
-  const formatDate = (dateStr: string) => {
+  const getInitials = (name?: string | null) => {
+    if (!name) return 'SR';
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+  };
+
+  const formatDateTime = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      return d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      return (
+        d.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }) +
+        ' · ' +
+        d.toLocaleTimeString(undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      );
     } catch {
       return dateStr;
     }
@@ -106,350 +141,600 @@ export default function AdminComplaintDetailScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading complaint details...</Text>
       </View>
     );
   }
 
   if (!complaint) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.notFoundTitle}>Complaint Not Found</Text>
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>Complaint not found.</Text>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>← Go Back</Text>
+          <Text style={styles.backBtnText}>Back to Dashboard</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  const refCode = getComplaintReference(complaint);
+  const reporterName = complaint.profiles?.full_name || 'Student Reporter';
+
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-      <View style={styles.card}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>← Back to Admin Dashboard</Text>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Top Header */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backHeaderBtn}
+          activeOpacity={0.7}
+        >
+          <ArrowLeftIcon size={18} color={COLORS.textPrimary} />
+          <Text style={styles.backHeaderText}>Dashboard</Text>
         </TouchableOpacity>
 
-        <View style={styles.headerInfo}>
-          <View style={styles.badgeRow}>
-            <StatusBadge status={complaint.status} size="large" />
-            <PriorityBadge priority={complaint.priority} size="medium" />
-            <View style={styles.categoryTag}>
-              <Text style={styles.categoryText}>{complaint.category}</Text>
+        <Text style={styles.topBarRef}>{refCode}</Text>
+
+        <TouchableOpacity
+          style={styles.chatHeaderBtn}
+          onPress={() => setShowCommentsModal(true)}
+        >
+          <CommentIcon size={16} color={COLORS.primary} />
+          <Text style={styles.chatHeaderText}>Chat</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header Summary Card */}
+        <View style={styles.headerCard}>
+          <View style={styles.metaRow}>
+            <Text style={styles.refCodeText}>COMPLAINT {refCode}</Text>
+            <View style={styles.badgeRow}>
+              <StatusBadge status={complaint.status} size="small" />
+              <PriorityBadge priority={complaint.priority} size="small" />
             </View>
           </View>
+
           <Text style={styles.title}>{complaint.title}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaText}>👤 Reported by: {complaint.profiles?.full_name || 'Student'}</Text>
-            <Text style={styles.metaText}>📅 {formatDate(complaint.created_at)}</Text>
+
+          <View style={styles.tagLocationRow}>
+            <Text style={styles.categoryBadge}>
+              {CATEGORY_ICONS[complaint.category]} {complaint.category}
+            </Text>
+            <Text style={styles.bullet}>·</Text>
+            <PinIcon size={12} color={COLORS.textSecondary} />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {complaint.location}
+            </Text>
+          </View>
+
+          <Text style={styles.dateReported}>
+            Reported on {formatDateTime(complaint.created_at)}
+          </Text>
+        </View>
+
+        {/* Student Reporter Profile Card (Figma screen 2:18279) */}
+        <View style={styles.reporterCard}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>{getInitials(reporterName)}</Text>
+          </View>
+
+          <View style={styles.reporterMeta}>
+            <Text style={styles.reporterName}>{reporterName}</Text>
+            <Text style={styles.reporterRoleText}>Student reporter</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.messageStudentBtn}
+            onPress={() => setShowCommentsModal(true)}
+          >
+            <Text style={styles.messageStudentText}>Message</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Description & Photo Section */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Description</Text>
+          <Text style={styles.descriptionText}>{complaint.description}</Text>
+
+          {complaint.image_url ? (
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{ uri: complaint.image_url }}
+                style={styles.issueImage}
+                resizeMode="cover"
+              />
+            </View>
+          ) : null}
+        </View>
+
+        {/* Activity Timeline */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Activity Timeline</Text>
+          <View style={styles.timelineList}>
+            {history.map((h, i) => (
+              <View
+                key={h.id || i}
+                style={[
+                  styles.timelineItem,
+                  i === history.length - 1 && { borderLeftColor: 'transparent' },
+                ]}
+              >
+                <View style={styles.timelineDot} />
+                <View style={styles.timelineBody}>
+                  <View style={styles.timelineHead}>
+                    <Text style={styles.timelineStatus}>{h.status}</Text>
+                    <Text style={styles.timelineTime}>
+                      {formatDateTime(h.changed_at)}
+                    </Text>
+                  </View>
+                  <Text style={styles.timelineNote}>
+                    {h.note || `Status marked as ${h.status}.`}
+                  </Text>
+                </View>
+              </View>
+            ))}
           </View>
         </View>
 
-        <View style={styles.divider} />
-
-        {/* DETAILS SECTION */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📍 Location</Text>
-          <Text style={styles.sectionBody}>{complaint.location}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📝 Issue Description</Text>
-          <Text style={styles.sectionBody}>{complaint.description}</Text>
-        </View>
-
-        {complaint.image_url ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📷 Attached Photo</Text>
-            <Image source={{ uri: complaint.image_url }} style={styles.image} resizeMode="cover" />
-          </View>
-        ) : null}
-
-        <View style={styles.divider} />
-
-        {/* ADMIN ACTION CONTROL PANEL */}
-        <View style={styles.adminActionCard}>
-          <Text style={styles.adminActionTitle}>⚙️ Admin Update Controls</Text>
-
-          {errorMsg ? <InlineMessage type="error" message={errorMsg} /> : null}
-          {successMsg ? <InlineMessage type="success" message={successMsg} /> : null}
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Set Status</Text>
-            <Chips
-              options={STATUSES}
-              selectedValue={selectedStatus}
-              onSelect={(val: string) => {
-                setSelectedStatus(val as ComplaintStatus);
-                setSuccessMsg(null);
-              }}
-            />
+        {/* Update Complaint Admin Workspace */}
+        <View style={styles.actionWorkspaceCard}>
+          <View style={styles.workspaceHeader}>
+            <ShieldIcon size={18} color={COLORS.primary} />
+            <View>
+              <Text style={styles.workspaceTitle}>Update complaint</Text>
+              <Text style={styles.workspaceSubtitle}>
+                Changes are shared with the reporter.
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Set Priority</Text>
-            <Chips
-              options={PRIORITIES}
-              selectedValue={selectedPriority}
-              onSelect={(val: string) => {
-                setSelectedPriority(val as ComplaintPriority);
-                setSuccessMsg(null);
-              }}
-            />
+          {/* 1. Status Picker */}
+          <Text style={styles.fieldLabel}>Status</Text>
+          <View style={styles.pickerRow}>
+            {STATUSES.map((st) => (
+              <TouchableOpacity
+                key={st}
+                style={[
+                  styles.pickerPill,
+                  newStatus === st && styles.pickerPillActive,
+                ]}
+                onPress={() => setNewStatus(st)}
+              >
+                <Text
+                  style={[
+                    styles.pickerPillText,
+                    newStatus === st && styles.pickerPillTextActive,
+                  ]}
+                >
+                  {st}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <Input
-            label="Admin Note / Remark (Visible to student)"
-            placeholder="e.g. Technician dispatched. Estimated fix time: 2 PM."
+          {/* 2. Priority Picker */}
+          <Text style={styles.fieldLabel}>Priority</Text>
+          <View style={styles.pickerRow}>
+            {PRIORITIES.map((pr) => (
+              <TouchableOpacity
+                key={pr}
+                style={[
+                  styles.pickerPill,
+                  newPriority === pr && styles.pickerPillActive,
+                ]}
+                onPress={() => setNewPriority(pr)}
+              >
+                <Text
+                  style={[
+                    styles.pickerPillText,
+                    newPriority === pr && styles.pickerPillTextActive,
+                  ]}
+                >
+                  {pr}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* 3. Assigned Team Picker */}
+          <Text style={styles.fieldLabel}>Assigned team</Text>
+          <View style={styles.pickerRow}>
+            {TEAMS.map((tm) => (
+              <TouchableOpacity
+                key={tm}
+                style={[
+                  styles.pickerPill,
+                  assignedTeam === tm && styles.pickerPillActive,
+                ]}
+                onPress={() => setAssignedTeam(tm)}
+              >
+                <Text
+                  style={[
+                    styles.pickerPillText,
+                    assignedTeam === tm && styles.pickerPillTextActive,
+                  ]}
+                >
+                  {tm}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* 4. Admin Note */}
+          <Text style={styles.fieldLabel}>Admin note</Text>
+          <TextInput
+            style={styles.adminNoteInput}
+            placeholder="e.g. Facilities has isolated the area. A plumber is scheduled for 4:30 PM today."
+            placeholderTextColor={COLORS.textMuted}
+            value={adminNote}
+            onChangeText={setAdminNote}
             multiline
             numberOfLines={3}
-            value={adminNote}
-            onChangeText={(text: string) => {
-              setAdminNote(text);
-              setSuccessMsg(null);
-            }}
-            style={styles.textArea}
+            textAlignVertical="top"
           />
 
-          <Button
-            title="Save & Update Status"
-            onPress={handleSaveChanges}
-            loading={saving}
-            style={styles.saveBtn}
-          />
-        </View>
-
-        <View style={styles.divider} />
-
-        {/* TIMELINE LOG */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⏳ Status History Log</Text>
-          <View style={styles.timelineContainer}>
-            {history.length === 0 ? (
-              <Text style={styles.noHistoryText}>No status log recorded yet.</Text>
+          {/* Submit Update Button */}
+          <TouchableOpacity
+            style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+            activeOpacity={0.85}
+            onPress={handleUpdate}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              history.map((item, index) => {
-                const isLast = index === history.length - 1;
-                return (
-                  <View key={item.id} style={styles.timelineItem}>
-                    <View style={styles.timelineLeft}>
-                      <View
-                        style={[
-                          styles.timelineDot,
-                          isLast && { backgroundColor: COLORS.primary, borderColor: COLORS.primaryLight },
-                        ]}
-                      />
-                      {!isLast ? <View style={styles.timelineLine} /> : null}
-                    </View>
-                    <View style={styles.timelineContent}>
-                      <View style={styles.timelineHeader}>
-                        <StatusBadge status={item.status} size="small" />
-                        <Text style={styles.timelineDate}>{formatDate(item.changed_at)}</Text>
-                      </View>
-                      {item.note ? (
-                        <Text style={styles.timelineNote}>"{item.note}"</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              })
+              <Text style={styles.saveBtnText}>Save changes</Text>
             )}
-          </View>
+          </TouchableOpacity>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Discussion Chat Modal */}
+      <ActivityCommentsModal
+        visible={showCommentsModal}
+        complaint={complaint}
+        onClose={() => setShowCommentsModal(false)}
+        onComplaintUpdated={(u) => setComplaint(u)}
+      />
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-    paddingVertical: 24,
-    paddingHorizontal: LAYOUT.paddingHorizontal,
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
   },
-  center: {
+  centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    gap: 12,
   },
-  loadingText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  notFoundTitle: {
-    fontSize: 18,
+  errorText: {
+    fontSize: 15,
+    color: '#DC2626',
     fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  card: {
-    width: '100%',
-    maxWidth: LAYOUT.maxWidth,
-    backgroundColor: COLORS.cardBackground,
-    borderRadius: LAYOUT.cardRadius,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
+    marginBottom: 12,
   },
   backBtn: {
-    alignSelf: 'flex-start',
-    marginBottom: 16,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
   },
-  backText: {
+  backBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 52 : 16,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  backHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  backHeaderText: {
     fontSize: 14,
-    color: COLORS.primary,
     fontWeight: '600',
+    color: COLORS.textPrimary,
   },
-  headerInfo: {
-    gap: 8,
+  topBarRef: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  chatHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  chatHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  scrollContent: {
+    padding: 18,
+    paddingBottom: 40,
+  },
+  headerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  refCodeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.primary,
   },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
+    gap: 6,
   },
-  categoryTag: {
-    backgroundColor: COLORS.categoryBg,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+  title: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    lineHeight: 24,
+    marginBottom: 10,
   },
-  categoryText: {
+  tagLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  categoryBadge: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.categoryText,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
+  bullet: {
+    color: COLORS.textMuted,
   },
-  metaRow: {
-    flexDirection: 'row',
-    gap: 16,
-    flexWrap: 'wrap',
-    marginTop: 4,
-  },
-  metaText: {
-    fontSize: 13,
+  locationText: {
+    fontSize: 12,
     color: COLORS.textSecondary,
-    fontWeight: '500',
+    flex: 1,
   },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 20,
+  dateReported: {
+    fontSize: 11,
+    color: COLORS.textMuted,
   },
-  section: {
-    marginBottom: 16,
+  reporterCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+    gap: 12,
   },
-  sectionTitle: {
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  reporterMeta: {
+    flex: 1,
+  },
+  reporterName: {
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 6,
   },
-  sectionBody: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    lineHeight: 22,
+  reporterRoleText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
-  image: {
-    width: '100%',
-    height: 280,
-    borderRadius: 12,
-    backgroundColor: COLORS.inputBg,
-    marginTop: 6,
+  messageStudentBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
   },
-  adminActionCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+  messageStudentText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    gap: 12,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
   },
-  adminActionTitle: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: 10,
   },
-  fieldGroup: {
-    gap: 6,
+  descriptionText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
   },
-  label: {
+  imageWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  issueImage: {
+    width: '100%',
+    height: 200,
+  },
+  timelineList: {
+    paddingLeft: 4,
+    marginTop: 4,
+  },
+  timelineItem: {
+    borderLeftWidth: 2,
+    borderLeftColor: '#E2E8F0',
+    paddingLeft: 14,
+    paddingBottom: 16,
+    position: 'relative',
+  },
+  timelineDot: {
+    position: 'absolute',
+    left: -6,
+    top: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+  },
+  timelineBody: {
+    flex: 1,
+  },
+  timelineHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  timelineStatus: {
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
+  timelineTime: {
+    fontSize: 10.5,
+    color: COLORS.textMuted,
   },
-  saveBtn: {
-    marginTop: 8,
-  },
-  timelineContainer: {
-    marginTop: 10,
-    paddingLeft: 4,
-  },
-  noHistoryText: {
-    fontSize: 13,
+  timelineNote: {
+    fontSize: 12,
     color: COLORS.textSecondary,
-    fontStyle: 'italic',
+    lineHeight: 16,
   },
-  timelineItem: {
-    flexDirection: 'row',
-    marginBottom: 16,
+  actionWorkspaceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    marginBottom: 24,
   },
-  timelineLeft: {
-    width: 24,
-    alignItems: 'center',
-  },
-  timelineDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: COLORS.border,
-    borderWidth: 2,
-    borderColor: COLORS.cardBackground,
-    zIndex: 2,
-  },
-  timelineLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: COLORS.border,
-    marginTop: 2,
-  },
-  timelineContent: {
-    flex: 1,
-    paddingLeft: 12,
-  },
-  timelineHeader: {
+  workspaceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 4,
+    marginBottom: 16,
   },
-  timelineDate: {
+  workspaceTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  workspaceSubtitle: {
     fontSize: 12,
     color: COLORS.textSecondary,
   },
-  timelineNote: {
+  fieldLabel: {
     fontSize: 13,
+    fontWeight: '700',
     color: COLORS.textPrimary,
-    fontStyle: 'italic',
-    marginTop: 2,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  pickerPill: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  pickerPillActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  pickerPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  pickerPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  adminNoteInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 13.5,
+    color: COLORS.textPrimary,
+    height: 80,
+    marginBottom: 16,
+  },
+  saveBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtnDisabled: {
+    opacity: 0.7,
+  },
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

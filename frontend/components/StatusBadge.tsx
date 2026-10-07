@@ -6,9 +6,14 @@ import { ComplaintStatus } from '../types';
 interface StatusBadgeProps {
   status: ComplaintStatus;
   size?: 'small' | 'medium' | 'large';
+  showDot?: boolean;
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium' }) => {
+export const StatusBadge: React.FC<StatusBadgeProps> = ({
+  status,
+  size = 'medium',
+  showDot = true,
+}) => {
   const config = COLORS.status[status] || COLORS.status.Pending;
 
   const getFontSize = () => {
@@ -16,7 +21,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium
       case 'small':
         return 11;
       case 'large':
-        return 14;
+        return 13;
       default:
         return 12;
     }
@@ -27,9 +32,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium
       case 'small':
         return { paddingVertical: 2, paddingHorizontal: 8 };
       case 'large':
-        return { paddingVertical: 6, paddingHorizontal: 14 };
+        return { paddingVertical: 5, paddingHorizontal: 12 };
       default:
-        return { paddingVertical: 4, paddingHorizontal: 10 };
+        return { paddingVertical: 3, paddingHorizontal: 10 };
     }
   };
 
@@ -41,6 +46,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'medium
         { backgroundColor: config.bg, borderColor: config.border },
       ]}
     >
+      {showDot ? (
+        <View style={[styles.dot, { backgroundColor: config.dot }]} />
+      ) : null}
       <Text style={[styles.text, { color: config.text, fontSize: getFontSize() }]}>
         {status}
       </Text>
@@ -52,12 +60,19 @@ const styles = StyleSheet.create({
   badge: {
     borderWidth: 1,
     borderRadius: 20,
+    flexDirection: 'row',
     alignSelf: 'flex-start',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 5,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   text: {
     fontWeight: '600',
-    textTransform: 'capitalize',
+    letterSpacing: 0.1,
   },
 });

@@ -1,285 +1,282 @@
-# 📡 Campus Complaints — Backend API Contract & Integration Guide
+# 📡 CampusCare — Backend API Contract & Integration Guide
 
 > **FOR THE FRONTEND COLLABORATOR & FIGMA MCP:**  
-> This document specifies all Supabase tables, columns, RPC functions, and ready-to-use JavaScript/TypeScript query snippets for building UI components with Figma MCP.
+> This specification documents all Supabase tables, columns, RPC functions, and copy-paste code snippets for building the **CampusCare** mobile application (`https://www.figma.com/design/XQw8JnfhmZd3EkOb35OD0z`).
 
 ---
 
 ## 🏗️ 1. Architecture Overview
 * **Backend Platform:** Supabase (PostgreSQL 15+, Supabase Auth, Storage, Realtime)
 * **Client Library:** `@supabase/supabase-js`
-* **Realtime Support:** Enabled on `complaints` and `complaint_comments`
+* **Realtime Channels Enabled:**
+  * `complaints` (Live status, priority, and upvote counter updates)
+  * `complaint_comments` (Live two-way student-admin discussion thread)
+  * `notifications` (Instant push notification alerts for students)
 
 ---
 
 ## 🗄️ 2. Database Schema & Tables
 
-### A. `profiles`
-Created automatically on sign up via database trigger.
-| Column | Type | Description |
-|---|---|---|
-| `id` | `uuid` (PK) | References `auth.users(id)` |
-| `full_name` | `text` | Display name of the student or admin |
-| `role` | `text` | `'student'` or `'admin'` |
-| `avatar_url` | `text` | Optional profile image URL |
-| `created_at` | `timestamptz` | Registration timestamp |
-
----
-
-### B. `complaints`
+### A. `complaints`
 Master table of reported campus problems.
 | Column | Type | Default | Description |
 |---|---|---|---|
 | `id` | `uuid` (PK) | `gen_random_uuid()` | Unique complaint identifier |
+| `reference_code` | `text` (Unique) | `'CC-' \|\| nextval(...)` | **Human-readable code (e.g. `#CC-1031`, `#CC-1048`)** |
 | `user_id` | `uuid` (FK) | — | References `profiles.id` (Reporter) |
-| `title` | `text` | — | Short problem title |
+| `title` | `text` | — | Problem title |
 | `description` | `text` | — | Detailed problem description |
 | `category` | `text` | — | `'Lighting'`, `'Furniture'`, `'Water Leakage'`, `'Cleanliness'`, `'Equipment'`, `'Network'` |
 | `location` | `text` | — | Human-readable location string |
 | `location_id` | `uuid` (FK) | `null` | Optional reference to `campus_locations.id` |
-| `image_url` | `text` | `null` | Public photo URL from `complaint-images` bucket |
+| `image_url` | `text` | `null` | Primary cover photo URL |
+| `image_urls` | `text[]` | `'{}'` | **Array of up to 4 photo URLs from storage** |
 | `status` | `text` | `'Pending'` | `'Pending'`, `'In Progress'`, `'Resolved'`, `'Rejected'`, `'Withdrawn'` |
 | `priority` | `text` | `'Medium'` | `'Low'`, `'Medium'`, `'High'`, `'Urgent'` |
-| `admin_note` | `text` | `null` | Public note from administration |
-| `upvotes_count` | `integer` | `0` | Automatically updated by database trigger |
+| `assigned_team` | `text` | `null` | **Assigned maintenance department** (e.g. `'Facilities'`, `'Electrical'`, `'Plumbing'`, `'HVAC / Cooling'`, `'IT & Network'`, `'Janitorial'`, `'Carpentry'`) |
+| `admin_note` | `text` | `null` | Public remark from administration |
+| `upvotes_count` | `integer` | `0` | Automatically maintained by database trigger |
 | `created_at` | `timestamptz` | `now()` | Timestamp created |
-| `updated_at` | `timestamptz` | `now()` | Automatically updated by trigger on edit |
+| `updated_at` | `timestamptz` | `now()` | Timestamp updated |
+
+---
+
+### B. `notifications` (In-App Alert Feed)
+Real-time alerts sent to students when their report moves forward or a team is assigned.
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` (PK) | Notification ID |
+| `user_id` | `uuid` (FK) | Target student recipient |
+| `complaint_id` | `uuid` (FK) | Related complaint |
+| `title` | `text` | Alert title (e.g. `"Status Updated: CC-1048"`) |
+| `message` | `text` | Alert description (e.g. `"The Electrical department has been assigned."`) |
+| `is_read` | `boolean` | Read status (`false` by default) |
+| `created_at` | `timestamptz` | Alert timestamp |
 
 ---
 
 ### C. `complaint_upvotes` ("I Have This Problem Too")
-Tracks unique upvotes per student per complaint.
+Unique student upvotes per complaint.
 | Column | Type | Description |
 |---|---|---|
 | `id` | `uuid` (PK) | Unique upvote identifier |
 | `complaint_id` | `uuid` (FK) | References `complaints.id` |
 | `user_id` | `uuid` (FK) | References `profiles.id` |
 | `created_at` | `timestamptz` | Timestamp |
-* **Constraint:** Unique `(complaint_id, user_id)` — one upvote per user.
+* **Constraint:** Unique `(complaint_id, user_id)` — one upvote per student.
 
 ---
 
-### D. `complaint_comments` (Two-Way Communication Thread)
-Live discussion thread between student and administration.
-| Column | Type | Default | Description |
-|---|---|---|---|
-| `id` | `uuid` (PK) | `gen_random_uuid()` | Comment ID |
-| `complaint_id` | `uuid` (FK) | — | Target complaint |
-| `user_id` | `uuid` (FK) | — | Author (`profiles.id`) |
-| `message` | `text` | — | Comment content |
-| `is_official` | `boolean` | `false` | Automatically set to `true` if author is an admin |
-| `created_at` | `timestamptz` | `now()` | Timestamp |
+### D. `complaint_comments` (Two-Way Communication)
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` (PK) | Comment ID |
+| `complaint_id` | `uuid` (FK) | Target complaint |
+| `user_id` | `uuid` (FK) | Author (`profiles.id`) |
+| `message` | `text` | Comment text |
+| `is_official` | `boolean` | Automatically set to `true` if author is an admin |
+| `created_at` | `timestamptz` | Timestamp |
 
 ---
 
 ### E. `campus_locations` (Standardized Dropdowns)
-Standardized building, floor, and room records.
 | Column | Type | Description |
 |---|---|---|
 | `id` | `uuid` (PK) | Location ID |
-| `building` | `text` | e.g. `'Block A (Engineering)'`, `'Central Library'` |
-| `floor` | `text` | e.g. `'Ground Floor'`, `'1st Floor'`, `'2nd Floor'` |
-| `room` | `text` | e.g. `'Room 204'`, `'Computer Lab 1'` |
+| `building` | `text` | Building / block name |
+| `floor` | `text` | Floor |
+| `room` | `text` | Specific room, lab, or area |
 
 ---
 
-### F. `status_history` (Audit Log & Timeline)
-Populated automatically by database triggers on status changes.
-| Column | Type | Description |
-|---|---|---|
-| `id` | `uuid` (PK) | History log ID |
-| `complaint_id` | `uuid` (FK) | Target complaint |
-| `status` | `text` | The new status assigned |
-| `note` | `text` | Remarks or admin note at that step |
-| `changed_by` | `uuid` (FK) | User who made the change |
-| `changed_at` | `timestamptz` | Timestamp |
+## 💻 3. Frontend Integration Code Snippets (Figma MCP)
 
----
-
-## 💻 3. Frontend Integration Code Snippets
-
-### 1. Toggle Upvote ("I Have This Problem Too")
-Call the atomic database RPC function:
+### 1. "Similar Issues Nearby" Bottom Sheet Modal (Duplicate Prevention)
+When the student enters category or location, query the database to detect existing nearby issues:
 ```typescript
-const { data, error } = await supabase.rpc('toggle_complaint_upvote', {
-  target_complaint_id: complaintId
+const { data: similarIssues, error } = await supabase.rpc('find_similar_complaints', {
+  p_category: selectedCategory, // e.g. 'Water Leakage'
+  p_location: enteredLocation,   // e.g. 'Library 2nd Floor'
+  p_exclude_id: null
 });
 
-// data returns: { action: 'added' | 'removed', upvoted: boolean, upvotes_count: number }
-if (!error) {
-  console.log(`New upvote count: ${data.upvotes_count}, Upvoted: ${data.upvoted}`);
-}
+// Returns up to 5 matching active complaints with upvote counts:
+// [
+//   {
+//     id: '...',
+//     reference_code: 'CC-1031',
+//     title: 'Water leaking from AC ceiling',
+//     category: 'Water Leakage',
+//     location: 'Central Library, 2nd Floor',
+//     status: 'In Progress',
+//     upvotes_count: 12,
+//     ...
+//   }
+// ]
 ```
 
 ---
 
-### 2. Fetch Complaints (With Reporter Name & Check If Current User Upvoted)
+### 2. Multi-Photo Upload & Complaint Submission (Up to 4 Photos)
 ```typescript
-const { data, error } = await supabase
+import { decode } from 'base64-arraybuffer';
+
+async function uploadPhotos(userId: string, base64Images: string[]): Promise<string[]> {
+  const uploadedUrls: string[] = [];
+  
+  for (let i = 0; i < base64Images.length; i++) {
+    const filePath = `${userId}/${Date.now()}_${i}.jpg`;
+    const cleanBase64 = base64Images[i].includes('base64,')
+      ? base64Images[i].split('base64,')[1]
+      : base64Images[i];
+
+    const { error } = await supabase.storage
+      .from('complaint-images')
+      .upload(filePath, decode(cleanBase64), {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+
+    if (!error) {
+      const { data } = supabase.storage
+        .from('complaint-images')
+        .getPublicUrl(filePath);
+      uploadedUrls.push(data.publicUrl);
+    }
+  }
+  return uploadedUrls;
+}
+
+// Submitting Complaint with multiple photos:
+const photoUrls = await uploadPhotos(user.id, selectedBase64Photos);
+
+const { data: newComplaint, error } = await supabase
+  .from('complaints')
+  .insert({
+    user_id: user.id,
+    title: title.trim(),
+    category: category,
+    location: locationText,
+    location_id: selectedLocationId || null,
+    description: descriptionText,
+    image_urls: photoUrls, // Array of up to 4 URLs
+    image_url: photoUrls[0] || null // Primary cover thumbnail
+  })
+  .select()
+  .single();
+
+// newComplaint.reference_code will be automatically generated as '#CC-1048'
+```
+
+---
+
+### 3. Unified Activity Stream (Status Changes + Two-Way Chat)
+Single RPC call returning the blended chronological feed:
+```typescript
+const { data: activityStream, error } = await supabase.rpc('get_complaint_activity_stream', {
+  p_complaint_id: complaintId
+});
+
+// activityStream is an array sorted chronologically:
+// [
+//   {
+//     id: '...',
+//     entry_type: 'status_change', // Render audit pill or progress checkpoint
+//     status: 'In Progress',
+//     message: 'Facilities team assigned',
+//     is_official: true,
+//     author: { full_name: 'Sara Admin', role: 'admin' },
+//     created_at: '2026-10-07T...'
+//   },
+//   {
+//     id: '...',
+//     entry_type: 'comment',       // Render speech bubble
+//     message: 'Electrician arriving this afternoon.',
+//     is_official: true,
+//     author: { full_name: 'Sara Admin', role: 'admin' },
+//     created_at: '2026-10-07T...'
+//   }
+// ]
+```
+
+---
+
+### 4. Trending Feed Query (Most Supported Issues)
+```typescript
+// Tab: Trending (Orders by highest student upvotes, then recency)
+const { data: trendingComplaints, error } = await supabase
   .from('complaints')
   .select(`
     *,
     profiles (full_name, role, avatar_url),
     complaint_upvotes (user_id)
   `)
+  .in('status', ['Pending', 'In Progress'])
+  .order('upvotes_count', { ascending: false })
   .order('created_at', { ascending: false });
-
-// Compute has_user_upvoted on client:
-const complaints = data?.map(item => ({
-  ...item,
-  has_user_upvoted: item.complaint_upvotes?.some(
-    (u: { user_id: string }) => u.user_id === currentUserId
-  )
-}));
 ```
 
 ---
 
-### 3. Fetch Comments for a Complaint
-```typescript
-const { data: comments, error } = await supabase
-  .from('complaint_comments')
-  .select(`
-    id,
-    message,
-    is_official,
-    created_at,
-    user_id,
-    profiles (full_name, role, avatar_url)
-  `)
-  .eq('complaint_id', complaintId)
-  .order('created_at', { ascending: true });
-```
-
----
-
-### 4. Post a New Comment
+### 5. Admin Assign Team & Update Status
 ```typescript
 const { data, error } = await supabase
-  .from('complaint_comments')
-  .insert({
-    complaint_id: complaintId,
-    user_id: currentUserId,
-    message: text.trim()
+  .from('complaints')
+  .update({
+    status: 'In Progress',
+    priority: 'High',
+    assigned_team: 'Electrical', // 'Facilities' | 'Electrical' | 'Plumbing' | 'HVAC / Cooling' | 'IT & Network' | 'Janitorial'
+    admin_note: 'Parts ordered. Technician arriving at 2 PM.'
   })
-  .select(`
-    *,
-    profiles (full_name, role, avatar_url)
-  `)
+  .eq('id', complaintId)
+  .select()
   .single();
+// Database trigger will automatically generate a notification for the student!
 ```
 
 ---
 
-### 5. Listen to Live Comments in Realtime
+### 6. Student In-App Notifications & Realtime Channel
 ```typescript
-const commentsChannel = supabase
-  .channel(`complaint-${complaintId}-comments`)
+// 1. Fetch unread notifications
+const { data: notifications, error } = await supabase
+  .from('notifications')
+  .select('*')
+  .eq('user_id', currentUserId)
+  .order('created_at', { ascending: false });
+
+// 2. Mark notification as read
+await supabase
+  .from('notifications')
+  .update({ is_read: true })
+  .eq('id', notificationId);
+
+// 3. Listen to live incoming notifications
+const notifChannel = supabase
+  .channel(`user-notifications-${currentUserId}`)
   .on(
     'postgres_changes',
     {
       event: 'INSERT',
       schema: 'public',
-      table: 'complaint_comments',
-      filter: `complaint_id=eq.${complaintId}`
+      table: 'notifications',
+      filter: `user_id=eq.${currentUserId}`
     },
-    async (payload) => {
-      // Fetch full profile info for new comment
-      const { data: author } = await supabase
-        .from('profiles')
-        .select('full_name, role, avatar_url')
-        .eq('id', payload.new.user_id)
-        .single();
-      
-      const newComment = { ...payload.new, profiles: author };
-      setComments(prev => [...prev, newComment]);
+    (payload) => {
+      // Trigger toast or update notification badge count
+      console.log('New Notification:', payload.new.title, payload.new.message);
     }
   )
   .subscribe();
-
-// Don't forget to unsubscribe on component unmount:
-// supabase.removeChannel(commentsChannel);
 ```
 
 ---
 
-### 6. Fetch Campus Locations for Hierarchical Dropdowns
+### 7. Toggle Upvote ("I Have This Problem Too")
 ```typescript
-const { data: locations, error } = await supabase
-  .from('campus_locations')
-  .select('id, building, floor, room')
-  .order('building', { ascending: true });
-
-// Extract distinct buildings:
-const buildings = [...new Set(locations?.map(l => l.building))];
-
-// Filter floors for selected building:
-const getFloors = (building: string) => [
-  ...new Set(locations?.filter(l => l.building === building).map(l => l.floor))
-];
-
-// Filter rooms for selected floor:
-const getRooms = (building: string, floor: string) => 
-  locations?.filter(l => l.building === building && l.floor === floor) || [];
-```
-
----
-
-### 7. Student Self-Resolve or Withdraw Complaint
-```typescript
-// Option A: Self-resolve
-const { data, error } = await supabase.rpc('self_resolve_my_complaint', {
-  target_complaint_id: complaintId,
-  remark: 'Fixed by student on-site'
+const { data, error } = await supabase.rpc('toggle_complaint_upvote', {
+  target_complaint_id: complaintId
 });
 
-// Option B: Withdraw
-const { data, error } = await supabase.rpc('withdraw_my_complaint', {
-  target_complaint_id: complaintId,
-  reason: 'Reported by mistake'
-});
-```
-
----
-
-### 8. Admin Update Complaint Status & Priority
-```typescript
-const { data, error } = await supabase
-  .from('complaints')
-  .update({
-    status: newStatus,       // 'Pending' | 'In Progress' | 'Resolved' | 'Rejected'
-    priority: newPriority,   // 'Low' | 'Medium' | 'High' | 'Urgent'
-    admin_note: noteText
-  })
-  .eq('id', complaintId)
-  .select()
-  .single();
-```
-
----
-
-### 9. Upload Complaint Image to Storage
-```typescript
-import { decode } from 'base64-arraybuffer';
-
-async function uploadImage(userId: string, base64Data: string): Promise<string> {
-  const filePath = `${userId}/${Date.now()}.jpg`;
-  const cleanBase64 = base64Data.includes('base64,') ? base64Data.split('base64,')[1] : base64Data;
-  const arrayBuffer = decode(cleanBase64);
-
-  const { error } = await supabase.storage
-    .from('complaint-images')
-    .upload(filePath, arrayBuffer, {
-      contentType: 'image/jpeg',
-      upsert: true
-    });
-
-  if (error) throw error;
-
-  const { data } = supabase.storage
-    .from('complaint-images')
-    .getPublicUrl(filePath);
-
-  return data.publicUrl;
-}
+// data returns: { action: 'added' | 'removed', upvoted: boolean, upvotes_count: number }
 ```
