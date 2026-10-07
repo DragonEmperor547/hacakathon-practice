@@ -58,14 +58,20 @@ To promote a registered account to Admin:
 UPDATE public.profiles SET role = 'admin' WHERE id = '<user-uuid>';
 ```
 
-### 4. Running the Web Application
+### 4. Running the Application
 
 ```bash
+# Navigate to frontend
+cd frontend
+
 # Install dependencies
 npm install
 
 # Start Expo Web App
 npm run web
+
+# Or start on mobile device
+npx expo start -c
 ```
 
 ---
@@ -73,15 +79,21 @@ npm run web
 ## 📁 Project Structure
 
 ```
-├── app/                      # Expo Router screen hierarchy
-│   ├── _layout.tsx           # Global AuthProvider & Stack Navigation
-│   ├── index.tsx             # Root role-based redirect entry
-│   ├── (auth)/               # Auth screens (login, signup)
-│   ├── (student)/            # Student portal screens (list, report, detail)
-│   └── (admin)/              # Admin dashboard & management screens
-├── components/               # UI components (Button, Input, Chips, Badges, Cards...)
-├── constants/                # Theme tokens & layout values
-├── lib/                      # Supabase client & centralized API helpers
-├── types/                    # TypeScript interfaces
-└── supabase_schema.sql       # Database schema & triggers
+├── backend/                  # Supabase Database & Backend Infrastructure
+│   ├── schema.sql            # Master schema (v2.0) with upvotes, comments, locations
+│   ├── migrations/           # Modular SQL migrations (01 through 05)
+│   ├── seed.sql              # Realistic demo seed data with comments & upvotes
+│   ├── types/                # Strongly typed database TypeScript interfaces
+│   ├── api-contract.md       # Complete API contract for frontend / Figma MCP
+│   └── README.md             # Backend architecture & deployment guide
+├── frontend/                 # React Native / Expo Web & Mobile Application
+│   ├── src/app/              # Expo Router screen hierarchy
+│   ├── components/           # UI components (Button, Input, Chips, Badges, Cards...)
+│   ├── constants/            # Theme tokens & layout values
+│   ├── lib/                  # Supabase client & centralized API helpers
+│   ├── types/                # TypeScript interfaces
+│   └── package.json          # Frontend dependencies & scripts
+├── instruction.md            # Quickstart guide for agents & developers
+└── PROJECT_BRIEF.md          # Original hackathon specifications
 ```
+

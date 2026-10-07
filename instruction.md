@@ -7,23 +7,24 @@
 
 ## 1. 🟢 The Happy Path (Do This First)
 
-Run these three simple steps to start the application:
+Run these simple steps to start the application:
 
-### Step 1: Install Locked Dependencies
+### Step 1: Navigate to Frontend & Install Dependencies
 ```bash
+cd frontend
 npm install
 ```
-*(Installs the exact compatible versions from `package.json` — do not run `npm update` or install other packages).*
+*(Installs the exact compatible versions from `frontend/package.json` — do not run `npm update` or install other packages).*
 
 ### Step 2: Environment Configuration
-Make sure `.env` exists in the project root:
+Make sure `.env` exists inside `frontend/` (or project root):
 * If `.env` is missing, copy it from `.env.example`:
   ```bash
   # Windows PowerShell
-  Copy-Item .env.example .env
+  Copy-Item frontend/.env.example frontend/.env
 
   # macOS / Linux
-  cp .env.example .env
+  cp frontend/.env.example frontend/.env
   ```
 * Verify it contains:
   ```env
@@ -35,6 +36,7 @@ Make sure `.env` exists in the project root:
 
 #### To Run in Web Browser (Fastest for testing):
 ```bash
+cd frontend
 npx expo start --web
 ```
 or
