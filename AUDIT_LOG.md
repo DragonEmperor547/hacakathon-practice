@@ -118,6 +118,20 @@
 
 ---
 
+### Entry 007 — Idempotent Schema & Frontend Run Fixes
+* **Date:** 2026-10-07
+* **Branch:** `frontend-figma-redesign` → merged to `main`
+* **Scope:** Backend | Infrastructure
+* **Changes Made:**
+  1. **Idempotent Master Schema:** Running `backend/schema.sql` on a DB that already had v1 tables failed with `column "reference_code" does not exist`, because `CREATE TABLE IF NOT EXISTS` skips existing tables. Added `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all v2.x columns, a `reference_code` backfill, and re-created the `status` / `assigned_team` check constraints. The script is now safe to re-run on empty or existing databases.
+  2. **`supabase_schema.sql` Synced:** The root `supabase_schema.sql` was still the old v1 schema; it is now identical to `backend/schema.sql`.
+  3. **Blank Web Screen / Red Expo Go Screen:** `frontend/node_modules` did not exist (packages were only in a stale root `node_modules`), so Metro returned 404 for the JS bundle. Fixed by running `npm install` inside `frontend/`.
+  4. **Root `package.json`:** Forwards `npm start` / `web` / `android` / `ios` to `frontend/`.
+* **⚠️ Action for collaborators:** After pulling, run `npm install` inside `frontend/`. Run the app with `cd frontend; npx expo start -c` (or `npm start` from root). Do **not** run `npx expo start` from the repo root.
+* **Verification:** `npx tsc --noEmit` passes; Metro bundled web (962 modules) and Android (1500 modules) successfully.
+
+---
+
 ## 📝 Template for Future Audit Entries
 
 When adding new changes to this project, copy this template and append it to the list above:

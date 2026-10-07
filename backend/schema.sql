@@ -1,6 +1,6 @@
 -- ========================================================
 -- CAMPUSCARE / CAMPUS PROBLEM REPORTING SYSTEM - MASTER DATABASE SCHEMA
--- Version 2.1 (Full Figma Design & Feature Parity)
+-- Version 2.1 (Full Figma Design & Feature Parity - Idempotent Migration)
 -- Run this in your Supabase SQL Editor
 -- ========================================================
 
@@ -18,6 +18,9 @@ create table if not exists public.profiles (
   avatar_url text,
   created_at timestamptz not null default now()
 );
+
+-- Ensure avatar_url exists if profiles table already existed
+alter table public.profiles add column if not exists avatar_url text;
 
 -- Trigger: auto-create profile on auth sign up
 create or replace function public.handle_new_user() returns trigger
@@ -56,7 +59,7 @@ create index if not exists idx_campus_locations_building on public.campus_locati
 -- 3. COMPLAINTS TABLE
 create table if not exists public.complaints (
   id uuid primary key default gen_random_uuid(),
-  reference_code text unique not null default ('CC-' || nextval('complaint_ref_seq')::text),
+  reference_code text unique default ('CC-' || nextval('complaint_ref_seq')::text),
   user_id uuid not null references public.profiles(id) on delete cascade,
   title text not null,
   description text not null,
@@ -81,6 +84,55 @@ create table if not exists public.complaints (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Idempotent column additions in case complaints already existed from v1
+alter table public.complaints 
+  add column if not exists reference_code text default ('CC-' || nextval('complaint_ref_seq')::text),
+  add column if not exists location_id uuid references public.campus_locations(id) on delete set null,
+  add column if not exists image_urls text[] default '{}'::text[],
+  add column if not exists assigned_team text,
+  add column if not exists upvotes_count integer not null default 0;
+
+-- Backfill reference_code on existing rows if any
+update public.complaints 
+set reference_code = 'CC-' || nextval('complaint_ref_seq')::text 
+where reference_code is null;
+
+-- Ensure reference_code has unique constraint
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'complaints_reference_code_key'
+  ) then
+    alter table public.complaints add constraint complaints_reference_code_key unique (reference_code);
+  end if;
+exception when others then
+  null;
+end $$;
+
+-- Update status constraint to include 'Withdrawn'
+do $$
+begin
+  alter table public.complaints drop constraint if exists complaints_status_check;
+  alter table public.complaints add constraint complaints_status_check 
+    check (status in ('Pending','In Progress','Resolved','Rejected','Withdrawn'));
+exception when others then
+  null;
+end $$;
+
+-- Update assigned_team constraint
+do $$
+begin
+  alter table public.complaints drop constraint if exists complaints_assigned_team_check;
+  alter table public.complaints add constraint complaints_assigned_team_check check (
+    assigned_team is null or assigned_team in (
+      'Facilities', 'Electrical', 'Plumbing', 'HVAC / Cooling',
+      'IT & Network', 'Janitorial', 'Carpentry', 'General Maintenance'
+    )
+  );
+exception when others then
+  null;
+end $$;
 
 create index if not exists idx_complaints_user_id on public.complaints(user_id);
 create index if not exists idx_complaints_status on public.complaints(status);
